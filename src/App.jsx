@@ -1,19 +1,18 @@
 import React from 'react';
 import './App.css';
+import {BrowserRouter, Route, Routes} from "react-router-dom";
+import Form from "./Form.jsx";
+import Home from "./Home.jsx";
+import Curriculum from "./Curriculum.jsx";
 
 export default function App() {
-
     return (
-        <div className="hero bg-base-200 min-h-screen">
-            <div className="hero-content text-center">
-                <div className="max-w-md">
-                    <h1 className="text-5xl font-bold">Peaker</h1>
-                    <p className="py-6">
-                        For those who want ease in scheduling courses.
-                    </p>
-                    <button className="btn btn-primary">Get Started</button>
-                </div>
-            </div>
-        </div>
+        <BrowserRouter>
+            <Routes>
+                <Route path={"/"} element={<Home />} />
+                <Route path={"/form"} element={<Form />} />
+                <Route path={"/curr"} element={<Curriculum />} />
+            </Routes>
+        </BrowserRouter>
     )
 }
