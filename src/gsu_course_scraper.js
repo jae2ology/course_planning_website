@@ -88,21 +88,26 @@ async function scrapeGSU(semesterName, subjectName) {
         ); // remove empty rows (but there may not be any)
     });
 
+    console.log(`Scraped ${courseData.length} courses!`);
     console.log(`Syncing Database for ${courseData.length} courses`);
+
     for (const course of courseData) {
         try {
-            const res = await pool.query( 'SELECT current_user'
-            )
+            const res = await pool.query(
+                'INSERT INTO Course VALUES(' +
+                '$1, $2, $3, $4, $5, $6, $7)', course.crn, course.title, course.credits, course.instructor, course.days, course.time, course.campus);
+
             //TODO: update database
-            console.log(res);
+
+            console.log(res.rows[0]);
 
         } catch (error) {
             console.log(`Error saving course ${course}`, error.message);
         }
     }
 
-    console.log(`Scraped ${courseData.length} courses!`);
-    console.log(courseData.slice(0, 3)); // show first 3
+
+    // console.log(courseData.slice(0, 3)); // show first 3
 
     await browser.close();
     return courseData;
