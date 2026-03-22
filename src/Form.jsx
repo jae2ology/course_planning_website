@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useState} from 'react';
 import { pool } from './db.js';
 import img from './imgs/img.png';
 import { useNavigate } from 'react-router-dom';
@@ -6,7 +6,13 @@ import { useNavigate } from 'react-router-dom';
 export default function Form() {
 
     // TODO: add some database logic here:
-    let school = 'gsu';
+
+    const [universityName, setUniversityName] = useState('');
+
+    const changeUniversityName = (newUniversity) => {
+        setUniversityName(newUniversity);
+        goToSelect();
+    }
     const navigate = useNavigate();
 
     const goToSelect = () => {
@@ -21,10 +27,10 @@ export default function Form() {
             </div>
 
             <div className={'flex flex-col mt-10'}>
-                <button  onClick={goToSelect}className={'btn bg-blue-950 hover:bg-blue-900 hover:scale-115 shadow-md rounded-lg p-7'} value={school}>
+                <button  id={'gsu'} onClick={() => changeUniversityName('gsu')} className={'btn bg-blue-950 hover:bg-blue-900 hover:scale-115 shadow-md rounded-lg p-7'}>
                     <div className={'flex flex-row items-center'}>
                         <img src={img} className={'w-12 h-8'}/>
-                        <div id={'gsu'} className={'text-1xl font-bold leading-tight text-white'}>
+                        <div className={'text-1xl font-bold leading-tight text-white'}>
                             Georgia Southern University
                         </div>
                     </div>

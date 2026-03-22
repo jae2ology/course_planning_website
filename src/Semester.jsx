@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useState} from 'react';
 import {useNavigate} from "react-router-dom";
 
 export default function Semester() {
@@ -7,7 +7,16 @@ export default function Semester() {
         navigate('/');
     }
 
-    let semesterName = '';
+    const [semesterName, setSemesterName] = useState('');
+
+    const changeSemesterName = (text) => {
+        setSemesterName(text);
+        goToMain()
+    };
+
+    const goToMain = () => {
+        navigate('/mainPage');
+    }
 
     return (
         <div className={'fadeInUp-animation flex flex-col gap-10 justify-center items-center min-h-screen '}>
@@ -17,8 +26,7 @@ export default function Semester() {
 
             <div className={'flex mt-5 gap-7'}>
 
-
-                <button className={'btn bg-green-700 hover:bg-green-500 hover:scale-115 shadow-md rounded-lg p-7'}>
+                <button onClick={() => changeSemesterName('202601')} className={'btn bg-green-700 hover:bg-green-500 hover:scale-115 shadow-md rounded-lg p-7'}>
                     <div className={'flex flex-row items-center'}>
                         <div className={'text-1xl font-bold leading-tight text-white'}>
                             Spring 2026
@@ -26,7 +34,7 @@ export default function Semester() {
                     </div>
                 </button>
 
-                <button className={'btn bg-amber-700 hover:bg-amber-600 hover:scale-115 shadow-md rounded-lg p-7'}>
+                <button onClick={() => changeSemesterName('202605')} className={'btn bg-amber-700 hover:bg-amber-600 hover:scale-115 shadow-md rounded-lg p-7'}>
                     <div className={'flex flex-row items-center'}>
                         <div className={'text-1xl font-bold leading-tight text-white'}>
                             Summer 2026
@@ -34,7 +42,7 @@ export default function Semester() {
                     </div>
                 </button>
 
-                <button className={'btn bg-red-800 hover:bg-red-600 hover:scale-115 shadow-md rounded-lg p-7'}>
+                <button onClick={() => changeSemesterName('202608')} className={'btn bg-red-800 hover:bg-red-600 hover:scale-115 shadow-md rounded-lg p-7'}>
                     <div className={'flex flex-row items-center'}>
                         <div className={'text-1xl font-bold leading-tight text-white'}>
                             Fall 2026
