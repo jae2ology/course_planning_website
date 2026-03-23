@@ -13,7 +13,7 @@ export default function App() {
                 <Route path={"/"} element={<Home />} />
                 <Route path={"/form"} element={<Form />} />
                 <Route path={"/semester"} element={<Semester />} />
-                <Route path={"/main"} element={<MainPage />} />
+                <Route path={"/mainPage"} element={<MainPage />} />
             </Routes>
         </BrowserRouter>
     )

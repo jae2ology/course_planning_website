@@ -5,8 +5,6 @@ import { useNavigate } from 'react-router-dom';
 
 export default function Form() {
 
-    // TODO: add some database logic here:
-
     const [universityName, setUniversityName] = useState('');
 
     const changeUniversityName = (newUniversity) => {
@@ -18,6 +16,9 @@ export default function Form() {
     const goToSelect = () => {
         navigate('/semester');
     };
+
+    // TODO: add some database logic here:
+
 
     return (
 
