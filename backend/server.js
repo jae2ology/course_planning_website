@@ -1,12 +1,28 @@
 import express from 'express';
 import puppeteer from 'puppeteer';
 import cors from 'cors';
+import {pool} from "./db.js";
 const app = express();
 
 app.use(cors());
 app.get('/api/courses', async (req, res) => {
     try {
-        const {subjectName, semesterName} = req.query;
+        const {subjectName, semesterName, universityName} = req.query;
+
+        console.log("Inserting university into database: ", universityName);
+        const univResult = await pool.query(
+            "INSERT INTO university (name) VALUES ($1) RETURNING univ_id", [universityName]
+        );
+
+        const universityId = univResult.rows[0].id;
+
+        console.log("Inserting semester into database: ", semesterName);
+        const semesterResult = await pool.query(
+            "INSERT INTO semester (name, univ_id) VALUES ($1, $2) RETURNING sem_id", [semesterName, universityId]
+        );
+
+        const semesterId = semesterResult.rows[0].id;
+
 
         const browser = await puppeteer.launch({ headless: false });
         const page = await browser.newPage();
@@ -95,8 +111,20 @@ app.get('/api/courses', async (req, res) => {
 
         for (const course of courseData) {
             try {
-                console.log('update database');
-                // TODO: UPDATE DATABASE WITH SCRAPER
+                console.log("Inserting course into database");
+                const courseResult = await pool.query(
+                    `INSERT INTO course (sem_id, title, credits, school_id) VALUES ($1, $2, $3, $4) ON CONFLICT (sem_id, title) DO UPDATE SET title=EXCLUDED.title RETURNING course_id`,
+                    [semesterId, course.title, course.credits, universityId]
+                );
+
+                const courseId = courseResult.rows[0].id;
+
+                console.log("Inserting section into database");
+                await pool.query(
+                    'INSERT INTO section (crn, instructor, time, day, campus, course_id ) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (crn) DO NOTHING',
+                    [course.crn, course.instructor, course.time, course.days, course.campus, courseId]
+                )
+
 
             } catch (error) {
                 console.log(`Error saving course ${course}`, error.message);

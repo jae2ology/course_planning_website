@@ -5,6 +5,7 @@ import 'react-big-calendar/lib/css/react-big-calendar.css'
 import './App.css'
 import { Search, SlidersHorizontal, Clock, User } from 'lucide-react';
 import semesterName from './Semester.jsx';
+import universityName from './Form.jsx';
 
 // page for the calendar/schedule setup
 
@@ -44,6 +45,7 @@ export default function MainPage(){
         const query = new URLSearchParams({
             subjectName: debounced,
             semesterName: semesterName,
+            universityName: universityName,
         }).toString();
 
         fetch(`http://localhost:3001/api/courses?${query}`)

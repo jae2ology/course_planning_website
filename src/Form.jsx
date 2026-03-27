@@ -1,5 +1,4 @@
-import React, {useState} from 'react';
-import { pool } from './db.js';
+import React, {useEffect, useState} from 'react';
 import img from './imgs/img.png';
 import { useNavigate } from 'react-router-dom';
 
@@ -16,9 +15,6 @@ export default function Form() {
     const goToSelect = () => {
         navigate('/semester');
     };
-
-    // TODO: add some database logic here:
-
 
     return (
 
