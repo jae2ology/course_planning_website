@@ -7,7 +7,21 @@ const app = express();
 app.use(cors());
 app.get('/api/courses', async (req, res) => {
     try {
+
         const {subjectName, semesterName, universityName} = req.query;
+
+        const existingCourses = await pool.query(
+            'SELECT sec.*, c.title, c.credits, c.subject FROM section sec JOIN course c ON sec.course_id = c.course_id JOIN semester sem ON c.sem_id = sem.sem_id JOIN university u ON sem.univ_id = u.univ_id WHERE c.subject = $1 AND sem.sem_name = $2',
+            [subjectName, semesterName]
+        );
+
+        if (existingCourses.rows.length > 0) {
+            // if it exists
+            console.log("Fetching from Database");
+            return res.json(existingCourses.rows);
+        }
+
+        console.log("Database empty for this search");
 
         console.log("Inserting university into database: ", universityName);
         const univResult = await pool.query(
@@ -113,8 +127,8 @@ app.get('/api/courses', async (req, res) => {
             try {
                 console.log("Inserting course into database");
                 const courseResult = await pool.query(
-                    `INSERT INTO course (sem_id, title, credits, school_id) VALUES ($1, $2, $3, $4) ON CONFLICT (sem_id, title) DO UPDATE SET title=EXCLUDED.title RETURNING course_id`,
-                    [semesterId, course.title, course.credits, universityId]
+                    `INSERT INTO course (sem_id, title, credits, school_id, subject) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (sem_id, title) DO UPDATE SET title=EXCLUDED.title RETURNING course_id`,
+                    [semesterId, course.title, course.credits, universityId, course.subject]
                 );
 
                 const courseId = courseResult.rows[0].id;
