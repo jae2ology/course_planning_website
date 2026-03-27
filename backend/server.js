@@ -1,6 +1,6 @@
-const express = require('express');
-const puppeteer = require('puppeteer');
-const cors = require('cors');
+import express from 'express';
+import puppeteer from 'puppeteer';
+import cors from 'cors';
 const app = express();
 
 app.use(cors());
@@ -14,10 +14,7 @@ app.get('/api/courses', async (req, res) => {
 
         // find the specific forms
 
-        let semester = '202608';
-        if (semesterName === "Summer 2026" || semesterName === "summer 2026") {
-            semester = '202605';
-        }
+        let semester = semesterName;
 
         await page.waitForSelector('#form-search-semester');
         await page.select('#form-search-semester', semester);

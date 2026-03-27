@@ -18,3 +18,30 @@
     animation: 1.5s fadeInUp;
 }
 
+.rbc-time-content > .rbc-time-gutter,
+.rbc-time-content > .rbc-day-slot {
+    border-left: none !important;
+}
+
+.rbc-timeslot-group {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+    min-height: 60px !important;
+}
+
+.rbc-day-slot .rbc-time-slot {
+    border-top: none !important; }
+
+
+.rbc-header {
+    border-bottom: none !important;
+    padding: 10px 0 !important;
+    font-weight: 700 !important;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-size: 0.75rem;
+}
+
+
+.rbc-calendar {
+    border: none !important;
+}
