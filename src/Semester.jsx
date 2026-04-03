@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {useNavigate} from "react-router-dom";
+import {useLocation, useNavigate} from "react-router-dom";
 
 export default function Semester() {
     const navigate = useNavigate();
@@ -8,14 +8,19 @@ export default function Semester() {
     }
 
     const [semesterName, setSemesterName] = useState('');
+    const location = useLocation();
+    const universityName = location.state?.universityName;
 
     const changeSemesterName = (text) => {
         setSemesterName(text);
-        goToMain()
+        goToMain(text)
     };
 
-    const goToMain = () => {
-        navigate('/mainPage');
+    const goToMain = (text) => {
+        navigate('/mainPage', {state: {
+            universityName: universityName,
+                semesterName: text,
+            }});
     }
 
     return (

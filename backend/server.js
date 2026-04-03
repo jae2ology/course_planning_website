@@ -7,37 +7,59 @@ const app = express();
 app.use(cors());
 app.get('/api/courses', async (req, res) => {
     try {
-
+        console.log(pool.options.database)
         const {subjectName, semesterName, universityName} = req.query;
 
+        // search from database
         const existingCourses = await pool.query(
-            'SELECT sec.*, c.title, c.credits, c.subject FROM section sec JOIN course c ON sec.course_id = c.course_id JOIN semester sem ON c.sem_id = sem.sem_id JOIN university u ON sem.univ_id = u.univ_id WHERE c.subject = $1 AND sem.sem_name = $2',
-            [subjectName, semesterName]
+            'SELECT sec.*, c.title, c.credits, c.subject FROM section sec JOIN course c ON sec.course_id = c.course_id JOIN semester sem ON c.sem_id = sem.sem_id WHERE c.subject ILIKE $1 AND sem.sem_id = $2',
+            [`${subjectName}%`, semesterName] // ANYTHING starting with the subject
         );
 
+        // if it exists, (length > 0) then send to frontend
         if (existingCourses.rows.length > 0) {
             // if it exists
             console.log("Fetching from Database");
             return res.json(existingCourses.rows);
         }
 
+        // else, call post query to post the data to the database
+
         console.log("Database empty for this search");
+        return res.json([]);
+    }
+    catch (error) {
+        console.log(error);
+    }
+});
 
-        console.log("Inserting university into database: ", universityName);
+app.post('/api/courses', async (req, res) => {
+    try {
+        console.log(pool.options.database)
+        const {subjectName, semesterName, universityName} = req.query;
+
         const univResult = await pool.query(
-            "INSERT INTO university (name) VALUES ($1) RETURNING univ_id", [universityName]
-        );
+                `INSERT INTO university (name) 
+                 VALUES ($1) 
+                 ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name 
+                 RETURNING univ_id`,
+                [universityName]
+            );
+        const universityId = univResult.rows[0].univ_id;
 
-        const universityId = univResult.rows[0].id;
+        const semResult = await pool.query(
+                `INSERT INTO semester (sem_id, univ_id) 
+                 VALUES ($1, $2) 
+                 ON CONFLICT (sem_id) DO UPDATE SET univ_id = EXCLUDED.univ_id 
+                 RETURNING sem_id`,
+                [semesterName, universityId]
+            );
 
-        console.log("Inserting semester into database: ", semesterName);
-        const semesterResult = await pool.query(
-            "INSERT INTO semester (name, univ_id) VALUES ($1, $2) RETURNING sem_id", [semesterName, universityId]
-        );
+        const semesterId = semResult.rows[0].sem_id;
 
-        const semesterId = semesterResult.rows[0].id;
+        console.log(`Proceeding with Univerity: ${universityId}, Semester: ${semesterId}`);
 
-
+        // call puppeteer
         const browser = await puppeteer.launch({ headless: false });
         const page = await browser.newPage();
         await page.goto('https://coursesearch.georgiasouthern.edu/');
@@ -125,14 +147,16 @@ app.get('/api/courses', async (req, res) => {
 
         for (const course of courseData) {
             try {
+                // insert course intro databse
                 console.log("Inserting course into database");
                 const courseResult = await pool.query(
                     `INSERT INTO course (sem_id, title, credits, school_id, subject) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (sem_id, title) DO UPDATE SET title=EXCLUDED.title RETURNING course_id`,
                     [semesterId, course.title, course.credits, universityId, course.subject]
                 );
 
-                const courseId = courseResult.rows[0].id;
+                const courseId = courseResult.rows[0].course_id;
 
+                // insert section using courseID
                 console.log("Inserting section into database");
                 await pool.query(
                     'INSERT INTO section (crn, instructor, time, day, campus, course_id ) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (crn) DO NOTHING',
@@ -145,15 +169,68 @@ app.get('/api/courses', async (req, res) => {
             }
         }
 
-        // console.log(courseData.slice(0, 3)); // show first 3
-
         await browser.close();
-        return res.json(courseData); // send data back to frontend
+        return res.json(courseData);
 
     } catch (err) {
         res.status(500).send("Scraping error");
         console.log(err.message);
     }
-});
+
+})
+
+app.post('/api/schedule', async (req, res) => {
+    const crn = parseInt(req.query.crn);
+
+    try {
+        const result = await pool.query(
+            'INSERT INTO schedule (crn) VALUES ($1)', [crn]
+        )
+
+        res.status(201).json(result.rows[0]);
+
+    } catch (error) {
+        if (error.code === '23505') {
+            return res.status(409).json({ error: `This course is already on your schedule` });
+        }
+
+        res.status(500).json({ error: "Database failure: " + error.message });
+    }
+})
+
+app.get('/api/schedule', async (req, res) => {
+    try {
+
+        // select the crn from the schedule, day and time from the section, and title and subject from the course
+        const savedSchedule = await pool.query(
+            'SELECT s.crn, sec.day, sec.time, c.title, c.subject FROM schedule s JOIN section sec ON sec.crn = s.crn JOIN course c ON c.course_id = sec.course_id '
+        );
+        res.json(savedSchedule.rows);
+
+    } catch (error){
+        res.status(500).send("Error fetching schedule");
+        console.log(error.message);
+    }
+})
+
+app.delete('/api/schedule/:crn', async (req, res) => {
+    const {crn} = req.params;
+
+    try {
+        const result = await pool.query(
+            'DELETE FROM schedule WHERE crn = $1', [parseInt(crn)]
+        );
+
+        if (result.rowCount === 0){
+            return res.status(404).send("Course not found in schedule");
+        }
+
+        res.json({message: "Course removed successfully!"});
+
+    } catch (e){
+        console.error(e.message);
+        res.status(500).send("Database error");
+    }
+})
 
 app.listen(3001, () => console.log('Backend running on port 3001'));

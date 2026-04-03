@@ -4,8 +4,7 @@ import moment from 'moment';
 import 'react-big-calendar/lib/css/react-big-calendar.css'
 import './App.css'
 import { Search, SlidersHorizontal, Clock, User } from 'lucide-react';
-import semesterName from './Semester.jsx';
-import universityName from './Form.jsx';
+import {useLocation} from "react-router-dom";
 
 // page for the calendar/schedule setup
 
@@ -15,8 +14,13 @@ export default function MainPage(){
     const [subject, setSubject] = useState('');
     const [courses, setCourses] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [savedSchedule, setSavedSchedule] = useState([]);
+    const [onlineCourses, setOnlineCourses] = useState([]);
 
-    // TODO: update database for scheduler (create table schedule)
+    const location = useLocation();
+
+    const semester = location.state?.semesterName;
+    const university = location.state?.universityName;
 
     const changeSubject = (event) => {
         setSubject(event);
@@ -35,31 +39,151 @@ export default function MainPage(){
     useEffect(() => {
         // only fetch if subject is returned
         if (!debounced || debounced.length < 4) {
-            // eslint-disable-next-line react-hooks/set-state-in-effect
             setCourses([]);
             return;
         }
 
-        setLoading(true);
+        const fetchCourses = async () => {
+            setLoading(true);
+            try {
+                // get params
+                const queryParams = new URLSearchParams({
+                    subjectName: debounced,
+                    semesterName: semester,
+                    universityName: university,
+                }).toString();
 
-        const query = new URLSearchParams({
-            subjectName: debounced,
-            semesterName: semesterName,
-            universityName: universityName,
-        }).toString();
+                const queryUrl = `http://localhost:3001/api/courses?${queryParams}`;
 
-        fetch(`http://localhost:3001/api/courses?${query}`)
-            .then(res => res.json())
-            .then(data => {
+                // call get method to check if the courses exist in the database
+                const getResponse = await fetch(queryUrl);
+                // if it does, return the found data
+                let data = await getResponse.json();
+
+                // if they dont, call the post method to scrape the data and insert into database
+                if (!data || data.length === 0) {
+                    console.log("No courses found, scraping data now");
+                    const postResponse = await fetch(queryUrl, {
+                        method: "POST",
+                    });
+
+                    if (postResponse.ok){
+                        // call get method again once courses have been inserted
+                        const totalCourses = await fetch(queryUrl);
+                        data = await totalCourses.json();
+                    }
+                }
+
+
+
+                // set courses on the frontend to the data
                 setCourses(data);
-                setLoading(false);
-            })
-            .catch(err => {
-                console.error("Error fetching courses:", err);
-                setLoading(false);
-            });
-    }, [debounced]); // rerun when subject changes
 
+            } catch (error){
+                console.log(error)
+            } finally {
+                // stop loading on frontend
+                setLoading(false);
+            }
+        }
+
+        fetchCourses();
+        fetchSchedule();
+
+    }, [debounced, semester, university]); // rerun when subject changes
+
+    const handleAddCourse = async (course) => {
+        try {
+
+            const queryParams = new URLSearchParams({
+                crn: course.crn,
+            }).toString();
+
+            const response = await fetch(`http://localhost:3001/api/schedule?${queryParams}`, {
+                method: 'POST',
+            });
+
+            if (!response.ok){
+                const errorData = await response.json();
+
+                alert(`Error: ${errorData.error || 'Something went wrong'}`);
+                return; // Stop execution
+            }
+
+            alert(`Successfully added ${course.subject} to your schedule`);
+            fetchSchedule();
+
+        } catch (error){
+            console.log("Error adding course:", error);
+            alert("Could not connect to the server.");
+        }
+    }
+
+    const handleRemoveCourse = async (event) => {
+        const confirm = window.confirm(`Remove ${event.title} from your schedule?`);
+        if (!confirm) return;
+
+        try {
+            const res = await fetch(`http://localhost:3001/api/schedule/${event.crn}`, {
+                method: 'DELETE',
+            });
+
+            if (res.ok){
+                console.log(`${event.title} removed successfully.`);
+                fetchSchedule();
+            }
+
+        } catch (e) {
+            console.error ("Error removing course: ", e.message);
+        }
+    }
+
+    const changeCourseToEvent = (course) => {
+        if (!course.time || !course.day){
+            return [];
+        }
+
+        const dayMap = {'M' : 1, 'T' : 2, 'W' : 3, 'R' : 4, 'F' : 5};
+        const [startStr, endStr] = course.time.split(' - ');
+
+        return course.day.split('').map(dayLetter => {
+            const dayNumber = dayMap[dayLetter];
+            if (!dayNumber){
+                return null;
+            }
+
+            return {
+                title: `${course.subject} : ${course.title}`,
+                start: moment(startStr, 'h:mm A').day(dayNumber).toDate(),
+                end: moment(endStr, 'h:mm A').day(dayNumber).toDate(),
+                crn: course.crn
+            };
+        }).filter(Boolean);
+    };
+
+    const fetchSchedule = async () => {
+        try {
+            const res = await fetch(`http://localhost:3001/api/schedule`);
+            const data = await res.json();
+
+            const naCourses = data.filter(course =>
+                !course.time || course.time.includes('N/A') || !course.day || course.day.includes('N/A')
+            );
+            setOnlineCourses(naCourses);
+
+            const calendarCourses = data.filter(course =>
+                course.time && !course.time.includes('N/A') && course.day && !course.day.includes('N/A')
+            );
+
+            // convert database rows to calendar event objects
+            const formatted = calendarCourses.flatMap(course => changeCourseToEvent(course));
+            setSavedSchedule(formatted);
+
+
+        } catch (e) {
+            console.log("Failed to load schedule", e.message);
+        }
+    }
 
     const CourseCard = ({ course }) => (
         <div className={"p-5 rounded-2xl bg-slate-900 border border-white hover:border-primary/50 hover:bg-slate-800 transition-all shadow-xl"}>
@@ -82,7 +206,7 @@ export default function MainPage(){
                     <div className="flex items-start gap-3">
                         <Clock className="w-4 h-4 text-primary shrink-0" />
                         <div className="flex flex-col">
-                            <span className="font-bold text-slate-100">{course.days}</span>
+                            <span className="font-bold text-slate-100">{course.day}</span>
                             <span className="opacity-70">{course.time}</span>
                         </div>
                     </div>
@@ -100,7 +224,7 @@ export default function MainPage(){
 
             </div>
 
-            <button className="btn btn-sm btn-primary btn-block shadow-lg rounded-full">
+            <button onClick={() => handleAddCourse(course)} className="btn btn-sm btn-primary btn-block shadow-lg rounded-full">
                 Add
             </button>
 
@@ -144,16 +268,46 @@ export default function MainPage(){
                     )}
                 </div>
 
+                {/* show online courses */}
+                <div className="p-4 border-t bg-slate-50">
+                    <h3 className="text-sm font-bold mb-2 flex items-center gap-2">
+                        <Clock className="w-4 h-4" /> Online / Asynchronous
+                    </h3>
+                    {onlineCourses.length === 0 ? (
+                        <p className="text-xs text-slate-500">No online courses added.</p>
+                    ) : (
+                        onlineCourses.map(course => (
+                            <div key={course.crn} className="flex justify-between items-center p-2 mb-2 bg-white border rounded-lg shadow-sm">
+                                <div>
+                                    <div className="text-xs font-bold">{course.subject}</div>
+                                    <div className="text-[10px] text-slate-500">{course.title}</div>
+                                </div>
+                                <button
+                                    onClick={() => handleRemoveCourse(course)}
+                                    className="btn btn-xs btn-ghost text-error"
+                                >
+                                    Remove
+                                </button>
+                            </div>
+                        ))
+                    )}
+                </div>
+
             </aside>
 
             <main className={'flex-1 h-full p-4 overflow-y-auto'}>
                 <div className={'h-full bg-primary/30 rounded-2xl p-4 shadow-2xl border border-slate-950'}>
                     <Calendar
                         localizer={localizer}
-                        events={[]}
+                        events={savedSchedule}
                         style={{height:'100%'}}
                         view={Views.WEEK}
                         toolbar={false}
+                        onSelectEvent={handleRemoveCourse}
+                        eventPropGetter={(event) => ({
+                            className: "cursor-pointer !bg-primary hover:!bg-error transition-colors !text-white rounded-lg border-none shadow-md",
+                            style: { fontSize: '0.75rem' }
+                        })}
                         formats={{
                             dayFormat: 'ddd MM/DD',
                         }}

@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useState} from 'react';
 import img from './imgs/img.png';
 import { useNavigate } from 'react-router-dom';
 
@@ -8,12 +8,12 @@ export default function Form() {
 
     const changeUniversityName = (newUniversity) => {
         setUniversityName(newUniversity);
-        goToSelect();
+        goToSelect(newUniversity);
     }
     const navigate = useNavigate();
 
-    const goToSelect = () => {
-        navigate('/semester');
+    const goToSelect = (newUniversity) => {
+        navigate('/semester', { state: { universityName: newUniversity }});
     };
 
     return (
