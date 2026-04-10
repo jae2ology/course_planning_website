@@ -57,7 +57,7 @@ app.post('/api/courses', async (req, res) => {
 
         const semesterId = semResult.rows[0].sem_id;
 
-        console.log(`Proceeding with Univerity: ${universityId}, Semester: ${semesterId}`);
+        console.log(`Proceeding with University: ${universityId}, Semester: ${semesterId}`);
 
         // call puppeteer
         const browser = await puppeteer.launch({ headless: false });
@@ -150,7 +150,7 @@ app.post('/api/courses', async (req, res) => {
                 // insert course intro databse
                 console.log("Inserting course into database");
                 const courseResult = await pool.query(
-                    `INSERT INTO course (sem_id, title, credits, school_id, subject) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (sem_id, title) DO UPDATE SET title=EXCLUDED.title RETURNING course_id`,
+                    `INSERT INTO course (sem_id, title, credits, school_id, subject) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (sem_id, course_id) DO UPDATE SET title=EXCLUDED.title RETURNING course_id`,
                     [semesterId, course.title, course.credits, universityId, course.subject]
                 );
 
@@ -181,10 +181,24 @@ app.post('/api/courses', async (req, res) => {
 
 app.post('/api/schedule', async (req, res) => {
     const crn = parseInt(req.query.crn);
+    const semesterName = req.query.semesterName;
+    let scheduleNumber = 0;
 
     try {
+        if (semesterName === "202601"){
+            scheduleNumber = 1;
+        }
+
+        if (semesterName === "202605"){
+            scheduleNumber = 2;
+        }
+
+        if (semesterName === "202608"){
+            scheduleNumber = 3;
+        }
+
         const result = await pool.query(
-            'INSERT INTO schedule (crn) VALUES ($1)', [crn]
+            'INSERT INTO schedule (schedule_id, crn) VALUES ($1, $2)', [scheduleNumber, crn]
         )
 
         res.status(201).json(result.rows[0]);
@@ -200,10 +214,26 @@ app.post('/api/schedule', async (req, res) => {
 
 app.get('/api/schedule', async (req, res) => {
     try {
+        const semesterName = req.query.semesterName;
+
+        let scheduleNumber = 0;
+
+        // select the correct schedule based on the semester chosen
+        if (semesterName === "202601"){
+            scheduleNumber = 1;
+        }
+
+        if (semesterName === "202605"){
+            scheduleNumber = 2;
+        }
+
+        if (semesterName === "202608"){
+            scheduleNumber = 3;
+        }
 
         // select the crn from the schedule, day and time from the section, and title and subject from the course
         const savedSchedule = await pool.query(
-            'SELECT s.crn, sec.day, sec.time, c.title, c.subject FROM schedule s JOIN section sec ON sec.crn = s.crn JOIN course c ON c.course_id = sec.course_id '
+            'SELECT s.crn, sec.day, sec.time, c.title, c.subject FROM schedule s JOIN section sec ON sec.crn = s.crn JOIN course c ON c.course_id = sec.course_id WHERE s.schedule_id = $1', [scheduleNumber]
         );
         res.json(savedSchedule.rows);
 
@@ -212,6 +242,26 @@ app.get('/api/schedule', async (req, res) => {
         console.log(error.message);
     }
 })
+
+app.get('/api/schedule/credits/:scheduleNumber', async (req, res) => {
+    try {
+        const {scheduleNumber} = req.params;
+
+        const findCredits = await pool.query(
+            'SELECT SUM(c.credits) AS total_credits FROM schedule s JOIN section sec ON s.crn = sec.crn JOIN course c ON c.course_id = sec.course_id WHERE s.schedule_id = $1',
+            [parseInt(scheduleNumber)]
+        )
+
+        const result = findCredits.rows[0] || {total_credits : 0}; // first row only, show 0 if nothing was found (aka no courses on schedule)
+
+        res.json(result);
+
+    } catch (error){
+        res.status(500).send("Error fetching total credits");
+        console.log(error.message);
+    }
+})
+
 
 app.delete('/api/schedule/:crn', async (req, res) => {
     const {crn} = req.params;

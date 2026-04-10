@@ -16,6 +16,7 @@ export default function MainPage(){
     const [loading, setLoading] = useState(false);
     const [savedSchedule, setSavedSchedule] = useState([]);
     const [onlineCourses, setOnlineCourses] = useState([]);
+    const [totalCredits, setTotalCredits] = useState(0);
 
     const location = useLocation();
 
@@ -27,6 +28,9 @@ export default function MainPage(){
     }
 
     useEffect(() => {
+        fetchSchedule();
+        fetchCreditTotal();
+        
         const handler = setTimeout(() => {
             setDebounced(subject);
         }, 500); // wait 500s after the last letter
@@ -34,6 +38,7 @@ export default function MainPage(){
         return () => {
             clearTimeout(handler); // cancel timer if user types again
         };
+        
     }, [subject]);
 
     useEffect(() => {
@@ -88,7 +93,6 @@ export default function MainPage(){
         }
 
         fetchCourses();
-        fetchSchedule();
 
     }, [debounced, semester, university]); // rerun when subject changes
 
@@ -97,6 +101,7 @@ export default function MainPage(){
 
             const queryParams = new URLSearchParams({
                 crn: course.crn,
+                semesterName: semester,
             }).toString();
 
             const response = await fetch(`http://localhost:3001/api/schedule?${queryParams}`, {
@@ -112,6 +117,7 @@ export default function MainPage(){
 
             alert(`Successfully added ${course.subject} to your schedule`);
             fetchSchedule();
+            fetchCreditTotal();
 
         } catch (error){
             console.log("Error adding course:", error);
@@ -131,6 +137,7 @@ export default function MainPage(){
             if (res.ok){
                 console.log(`${event.title} removed successfully.`);
                 fetchSchedule();
+                fetchCreditTotal();
             }
 
         } catch (e) {
@@ -161,9 +168,47 @@ export default function MainPage(){
         }).filter(Boolean);
     };
 
+    const fetchCreditTotal = async () => {
+        if (!semester) return; // if there isn't a semester number yet dont worry abt it
+
+        let scheduleNumber = 0;
+        if (semester === "202601"){
+            scheduleNumber = 1;
+        }
+
+        if (semester === "202605"){
+            scheduleNumber = 2;
+        }
+
+        if (semester === "202608"){
+            scheduleNumber = 3;
+        }
+
+        try {
+            const res = await fetch(`http://localhost:3001/api/schedule/credits/${scheduleNumber}`);
+
+            if (res.ok){
+                console.log('Fetched total credits for current schedule ', scheduleNumber);
+                const data = await res.json();
+                const credits = data.total_credits || 0;
+
+                setTotalCredits(credits);
+            } else {
+                console.log("Failed to fetch current credit total");
+            }
+
+        } catch (error) {
+            console.log("Failed to load credit total ", error.message);
+        }
+    }
+
     const fetchSchedule = async () => {
         try {
-            const res = await fetch(`http://localhost:3001/api/schedule`);
+            const query = new URLSearchParams({
+                semesterName: semester,
+            }).toString();
+
+            const res = await fetch(`http://localhost:3001/api/schedule?${query}`);
             const data = await res.json();
 
             const naCourses = data.filter(course =>
@@ -178,7 +223,6 @@ export default function MainPage(){
             // convert database rows to calendar event objects
             const formatted = calendarCourses.flatMap(course => changeCourseToEvent(course));
             setSavedSchedule(formatted);
-
 
         } catch (e) {
             console.log("Failed to load schedule", e.message);
@@ -271,7 +315,7 @@ export default function MainPage(){
                 {/* show online courses */}
                 <div className="p-4 border-t bg-slate-50">
                     <h3 className="text-sm font-bold mb-2 flex items-center gap-2">
-                        <Clock className="w-4 h-4" /> Online / Asynchronous
+                        <Clock className="w-4 h-4" /> Asynchronous
                     </h3>
                     {onlineCourses.length === 0 ? (
                         <p className="text-xs text-slate-500">No online courses added.</p>
@@ -290,6 +334,20 @@ export default function MainPage(){
                                 </button>
                             </div>
                         ))
+                    )}
+                </div>
+
+                {/* show total credits! */}
+                <div className="p-4 border-t bg-slate-50">
+                    <h3 className="text-sm font-bold mb-2 flex items-center gap-2">
+                        Total Credits
+                    </h3>
+                    {savedSchedule.length === 0 ? (
+                        <p className="text-xs text-slate-500">No courses added.</p>
+                    ) : (
+                        <div className={"text-xs text-slate-500 font-bold"}>
+                            {totalCredits}
+                        </div>
                     )}
                 </div>
 

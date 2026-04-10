@@ -9,6 +9,7 @@ import MainPage from "./MainPage.jsx";
 export default function App() {
     return (
         <BrowserRouter>
+
             <Routes>
                 <Route path={"/"} element={<Home />} />
                 <Route path={"/form"} element={<Form />} />
