@@ -5,6 +5,8 @@ import Form from "./Form.jsx";
 import Home from "./Home.jsx";
 import Semester from "./Semester.jsx";
 import MainPage from "./MainPage.jsx";
+import Degree from "./Degree.jsx";
+import Prereqs from "./Prereqs.jsx";
 
 export default function App() {
     return (
@@ -15,6 +17,8 @@ export default function App() {
                 <Route path={"/form"} element={<Form />} />
                 <Route path={"/semester"} element={<Semester />} />
                 <Route path={"/mainPage"} element={<MainPage />} />
+                <Route path={"/degree"} element={<Degree />} />
+                <Route path={"/courses"} element={<Prereqs />} />
             </Routes>
         </BrowserRouter>
     )

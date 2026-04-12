@@ -5,6 +5,8 @@ import {pool} from "./db.js";
 const app = express();
 
 app.use(cors());
+
+// COURSES/SECTIONS
 app.get('/api/courses', async (req, res) => {
     try {
         console.log(pool.options.database)
@@ -32,7 +34,6 @@ app.get('/api/courses', async (req, res) => {
         console.log(error);
     }
 });
-
 app.post('/api/courses', async (req, res) => {
     try {
         console.log(pool.options.database)
@@ -179,6 +180,7 @@ app.post('/api/courses', async (req, res) => {
 
 })
 
+// SCHEDULE
 app.post('/api/schedule', async (req, res) => {
     const crn = parseInt(req.query.crn);
     const semesterName = req.query.semesterName;
@@ -211,7 +213,6 @@ app.post('/api/schedule', async (req, res) => {
         res.status(500).json({ error: "Database failure: " + error.message });
     }
 })
-
 app.get('/api/schedule', async (req, res) => {
     try {
         const semesterName = req.query.semesterName;
@@ -242,7 +243,6 @@ app.get('/api/schedule', async (req, res) => {
         console.log(error.message);
     }
 })
-
 app.get('/api/schedule/credits/:scheduleNumber', async (req, res) => {
     try {
         const {scheduleNumber} = req.params;
@@ -261,8 +261,6 @@ app.get('/api/schedule/credits/:scheduleNumber', async (req, res) => {
         console.log(error.message);
     }
 })
-
-
 app.delete('/api/schedule/:crn', async (req, res) => {
     const {crn} = req.params;
 
@@ -280,6 +278,183 @@ app.delete('/api/schedule/:crn', async (req, res) => {
     } catch (e){
         console.error(e.message);
         res.status(500).send("Database error");
+    }
+})
+
+// PREREQS/DEGREE
+app.get('/api/degree', async (req, res) => {
+    try {
+        const {major} = req.query;
+
+        const degree_reqs = await pool.query(
+            "SELECT d.course_subject, d.course_title, d.credits FROM degree d WHERE d.major = $1", [major]
+        );
+
+        if (degree_reqs.length > 0){
+            console.log("Fetching from Database");
+            return res.json(degree_reqs.rows);
+        }
+
+        console.log("Database empty for this search");
+        return res.json([]);
+
+    } catch (e) {
+        console.log("Error fetching degree requirements ", e.message);
+    }
+
+})
+app.post('/api/degree', async (req, res) => {
+    try {
+        const {major, university} = req.query;
+
+        const univRes = await pool.query(
+            "SELECT u.univ_id FROM university u WHERE u.name = $1", [university]
+        );
+
+        const univ_id = univRes.rows[0];
+
+        const browser = await puppeteer.launch({ headless: false });
+        const page = await browser.newPage();
+        
+        await page.goto('https://catalog.georgiasouthern.edu/content.php?catoid=16&navoid=1852', {
+            waitUntil: "networkidle2",
+        }); // go to academic catalog
+
+        const courseElements = await page.$$('li.acalog-course a');
+        const results = [];
+
+        for (const element of courseElements) {
+            await element.click(); // click to open the prereq page
+
+            // wait for the box to be visible
+            await page.waitForSelector('.td_dark', {timeout: 2000}).catch(() => null);
+
+            const data = await page.evaluate((linkElement) => {
+                // find the parent 'li' to get the course text and info
+                const link = linkElement.closest('li');
+                const text = link.innerText.trim();
+
+                // find parent section container
+                const parentSection = link.closest('.acalog-core');
+                const headerText = parentSection?.querySelector('h3')?.innerText.toLowerCase() || "";
+
+                let type = "Major Requirements"; // default
+
+                if (headerText.includes("specific requirements")){
+                    type = "Foreign Language and Science Requirements";
+                }
+
+                if (headerText.includes("field of study")){
+                    type = "Field of Study Requirements";
+                }
+
+                if (headerText.includes("electives")) {
+                    type = "Elective Requirements";
+                }
+
+                // create regex bc all information is in the same header
+                const regex = /([A-Z]{4})\s?(\d{4})[:\-\s]+(.*?)\s\((\d+)\sCredit/;
+                const match = text.match(regex);
+
+                if (!match) return null;
+
+                // look for prereqs in the expanded area
+                const expanded = link.querySelector('.td_dark');
+                let prereqText = "";
+
+                if (expanded){
+                    const allText = expanded.innerText;
+                    const prereqMatch = allText.match(/Prerequisite\(s\): (.*)/);
+                    prereqText = prereqMatch ? prereqMatch[1] : "None";
+                }
+
+                return {
+                    subject: match[1] + " " + match[2],
+                    title: match[3],
+                    credits: parseInt(match[4]),
+                    type: type,
+                    prereqs: prereqText
+                };
+            }, element);
+
+            if (data) results.push(data);
+
+            // click again to close it
+            await element.click();
+        }
+
+        for (const course of results){
+
+            console.log(`Inserting course ${course.title} into degree requirements`);
+
+            // insert into degree requirements
+            await pool.query(
+                'INSERT INTO degree (major, course_subject, course_title, credits, university_id, type_of_req) VALUES ($1, $2, $3, $4, $5, $6)',
+                [major, course.subject, course.title, course.credits, univ_id, course.type]
+            );
+
+            console.log(`Inserting prerequisite ${course.prereqs} of course ${course.title} into prerequisites`);
+            // prerequisite of courses
+            await pool.query(
+                'INSERT INTO prerequisite (course_subject, prereq_subject, univ_id, major) VALUES ($1, $2, $3, $4)',
+                [course.subject, course.prereqs, univ_id, major]
+            )
+        }
+
+
+    } catch (error){
+        console.log("Error posting degree requirements and prereqs", error.message);
+    }
+})
+
+// COMPLETED COURSES
+app.get('/api/completed_courses', async (req, res) => {
+    try {
+        const completedResults = await pool.query(
+            'SELECT * FROM completed_courses'
+        )
+
+        if (completedResults.length > 0){
+            console.log('Fetched all completed courses');
+            return res.json(completedResults.rows);
+        }
+
+        console.log("No completed courses");
+        return res.json([]);
+
+    } catch (e) {
+        console.error("Error fetching completed courses ", e.message);
+    }
+})
+app.post('/api/completed_courses/:course', async (req, res) => {
+    try {
+        const {course} = req.params;
+
+        pool.query(
+            "INSERT INTO completed_courses (course_subject, course_title) VALUES ($1, $2)",
+            [course.subject, course.title]
+        )
+
+        console.log(`Inserted ${course.title} into completed courses`);
+
+
+    } catch (e){
+        console.log("Error posting course", e);
+    }
+
+})
+app.delete('/api/completed_courses/:course', async (req, res) => {
+    try {
+        const {course} = req.params;
+        pool.query(
+            "DELETE FROM completed_courses WHERE course_subject = $1 AND course_title = $2",
+            [course.subject, course.title]
+        )
+
+        console.log(`Deleted ${course.title} from completed courses`);
+
+    } catch (e) {
+        console.error("Error deleting course", e);
     }
 })
 

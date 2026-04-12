@@ -13,11 +13,11 @@ export default function Semester() {
 
     const changeSemesterName = (text) => {
         setSemesterName(text);
-        goToMain(text)
+        goToDegree(text)
     };
 
-    const goToMain = (text) => {
-        navigate('/mainPage', {state: {
+    const goToDegree = (text) => {
+        navigate('/degree', {state: {
             universityName: universityName,
                 semesterName: text,
             }});
