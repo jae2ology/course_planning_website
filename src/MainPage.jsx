@@ -3,7 +3,7 @@ import {Calendar, momentLocalizer, Views} from "react-big-calendar";
 import moment from 'moment';
 import 'react-big-calendar/lib/css/react-big-calendar.css'
 import './App.css'
-import { Search, SlidersHorizontal, Clock, User } from 'lucide-react';
+import {Search, SlidersHorizontal, Clock, User, AlertTriangle} from 'lucide-react';
 import {useLocation} from "react-router-dom";
 
 // page for the calendar/schedule setup
@@ -22,6 +22,11 @@ export default function MainPage(){
 
     const semester = location.state?.semesterName;
     const university = location.state?.universityName;
+    const degree = location.state.degree;
+    const completed = location.state.completed;
+    const requirements = location.state.requirements;
+
+    const [progress, setProgress] = useState({completed: completed.length, total: 124});
 
     const changeSubject = (event) => {
         setSubject(event);
@@ -30,6 +35,7 @@ export default function MainPage(){
     useEffect(() => {
         fetchSchedule();
         fetchCreditTotal();
+        fetchProgress();
         
         const handler = setTimeout(() => {
             setDebounced(subject);
@@ -39,7 +45,7 @@ export default function MainPage(){
             clearTimeout(handler); // cancel timer if user types again
         };
         
-    }, [subject]);
+    }, [subject, savedSchedule]);
 
     useEffect(() => {
         // only fetch if subject is returned
@@ -96,13 +102,40 @@ export default function MainPage(){
 
     }, [debounced, semester, university]); // rerun when subject changes
 
+    const fetchProgress = async () => {
+        const res = await fetch(`http://localhost:3001/api/progress/${degree}`);
+        const data = await res.json();
+        // avoid division by 0
+        setProgress({
+            completed: parseInt(data.completed) || 0,
+            total: parseInt(data.total) || 124,
+        });
+    }
+
     const handleAddCourse = async (course) => {
         try {
-
             const queryParams = new URLSearchParams({
                 crn: course.crn,
                 semesterName: semester,
             }).toString();
+
+            // fetch prereqs
+            const query = new URLSearchParams({
+                major: degree
+            })
+
+            const prereqRes = await fetch(`http://localhost:3001/api/degree?${query}`);
+            const { prereqs } = await prereqRes.json();
+
+            if (prereqs !== "None") {
+                // check if the prereqs have been completed (if they are included in the completed list from the previous page)
+                const hasFinished = completed.some(c => prereqs.includes(c.course_subject));
+
+                if (!hasFinished) {
+                    alert(`Prerequisite Warning: This course requires ${prereqs}.`);
+                    return; // block adding course
+                }
+            }
 
             const response = await fetch(`http://localhost:3001/api/schedule?${queryParams}`, {
                 method: 'POST',
@@ -229,54 +262,84 @@ export default function MainPage(){
         }
     }
 
-    const CourseCard = ({ course }) => (
-        <div className={"p-5 rounded-2xl bg-slate-900 border border-white hover:border-primary/50 hover:bg-slate-800 transition-all shadow-xl"}>
-            <div className={"flex flex-wrap justify-between items-center gap-2 mb-2"}>
-                <div className={"flex items-center gap-2"}>
+    const CourseCard = ({ course }) => {
+        const isCompleted = completed.some(course => course.course_subject === course.subject);
+        const isRequirement = requirements.some(r => r.course_subject === course.subject);
+
+        return (
+            <div className={"p-5 rounded-2xl bg-slate-900 border border-white hover:border-primary/50 hover:bg-slate-800 transition-all shadow-xl"}>
+
+                <div className="absolute top-4 right-4 flex items-center gap-1">
+                    {isCompleted ? (
+                        <span className="flex items-center text-[10px] text-success font-bold uppercase">
+                        <div className="w-2 h-2 rounded-full bg-success mr-1 animate-pulse" /> Completed
+                    </span>
+                    ) : isRequirement ? (
+                        <span className="flex items-center text-[10px] text-primary font-bold uppercase">
+                        <div className="w-2 h-2 rounded-full bg-primary mr-1" /> Needed
+                    </span>
+                    ) : (
+                        <span className="flex items-center text-[10px] text-slate-500 font-bold uppercase">
+                        <div className="w-2 h-2 rounded-full bg-slate-500 mr-1" /> Elective
+                    </span>
+                    )}
+                </div>
+
+                <div className={"flex flex-wrap justify-between items-center gap-2 mb-2"}>
+                    <div className={"flex items-center gap-2"}>
                     <span className="text-xs text-primary uppercase tracking-widest">
                         CRN {course.crn}
                     </span>
-                    <span className="text-primary  badge badge-outline badge-sm opacity-100">{course.credits} Credits </span>
-                </div>
+                        <span className="text-primary  badge badge-outline badge-sm opacity-100">{course.credits} Credits </span>
+                    </div>
 
-                <h2 className="text-lg font-bold text-white leading-tight mb-1">
-                    {course.subject}
-                </h2>
-                <p className="text-sm text-slate-400 font-medium mb-4 line-clamp-1">
-                    {course.title}
-                </p>
+                    <h2 className="text-lg font-bold text-white leading-tight mb-1">
+                        {course.subject}
+                    </h2>
+                    <p className="text-sm text-slate-400 font-medium mb-4 line-clamp-1">
+                        {course.title}
+                    </p>
 
-                <div className="space-y-3 text-xs text-slate-300 mb-5">
-                    <div className="flex items-start gap-3">
-                        <Clock className="w-4 h-4 text-primary shrink-0" />
-                        <div className="flex flex-col">
-                            <span className="font-bold text-slate-100">{course.day}</span>
-                            <span className="opacity-70">{course.time}</span>
+                    <div className="space-y-3 text-xs text-slate-300 mb-5">
+                        <div className="flex items-start gap-3">
+                            <Clock className="w-4 h-4 text-primary shrink-0" />
+                            <div className="flex flex-col">
+                                <span className="font-bold text-slate-100">{course.day}</span>
+                                <span className="opacity-70">{course.time}</span>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <User className="w-4 h-4 text-primary shrink-0" />
+                            <span>{course.instructor}</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <div className="w-4 h-4 flex items-center justify-center">
+                                <div className="w-1.5 h-1.5 rounded-full bg-success"></div>
+                            </div>
+                            <span className="italic opacity-80">{course.campus}</span>
                         </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                        <User className="w-4 h-4 text-primary shrink-0" />
-                        <span>{course.instructor}</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                        <div className="w-4 h-4 flex items-center justify-center">
-                            <div className="w-1.5 h-1.5 rounded-full bg-success"></div>
+
+                    {/* Prereq warning */}
+                    {course.prereqs !== "None" && !isCompleted && (
+                        <div className="mt-2 text-[10px] text-error flex items-center gap-1">
+                            <AlertTriangle size={12} /> Requires: {course.prereqs}
                         </div>
-                        <span className="italic opacity-80">{course.campus}</span>
-                    </div>
+                    )}
+
                 </div>
+
+                <button onClick={() => handleAddCourse(course)} className="btn btn-sm btn-primary btn-block shadow-lg rounded-full">
+                    Add
+                </button>
+
+                {/* TODO: add hover:courses on calendar */}
 
             </div>
+        )
+    }
 
-            <button onClick={() => handleAddCourse(course)} className="btn btn-sm btn-primary btn-block shadow-lg rounded-full">
-                Add
-            </button>
-
-            {/* TODO: add hover:courses on calendar */}
-
-        </div>
-    )
-
+    const percentage = Math.round((progress.completed / progress.total) * 100);
 
     return (
         <div className={'fadeInUp-animation bg-base-200 h-screen flex overflow-hidden'}>
@@ -374,6 +437,19 @@ export default function MainPage(){
                     />
                 </div>
             </main>
+
+            <div className="p-4 bg-slate-100 rounded-xl mb-4 border-l-4 border-primary">
+                    <h3 className="text-sm font-black uppercase tracking-tighter">Plan for {degree}</h3>
+
+                    <div className="flex items-center justify-between mt-2">
+                        <span className="text-xs font-bold">{percentage}% Done</span>
+                        <span className="text-[10px] opacity-60">{progress.completed} / {progress.total} Credits</span>
+                    </div>
+
+                    <div className="w-full bg-slate-300 h-1.5 rounded-full mt-1 overflow-hidden">
+                        <div className="bg-primary h-full transition-all" style={{ width: `${percentage}%` }} />
+                    </div>
+            </div>
         </div>
     )
 }

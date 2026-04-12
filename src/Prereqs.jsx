@@ -13,7 +13,6 @@ export default function Prereqs() {
     const [loading, setLoading] = useState(true);
     const [completed, setCompleted] = useState(new Set());
 
-
     useEffect(() => {
         const fetchReqs = async () => {
             try {
@@ -92,6 +91,7 @@ export default function Prereqs() {
                 semesterName: semesterName,
                 degree: degree,
                 completed: completed,
+                requirements: requirements
             }})
     }
 

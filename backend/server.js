@@ -204,6 +204,21 @@ app.post('/api/schedule', async (req, res) => {
             'INSERT INTO schedule (schedule_id, crn) VALUES ($1, $2)', [scheduleNumber, crn]
         )
 
+        const findCourse = await pool.query(
+            'SELECT c.title, c.credits, c.subject FROM course c JOIN section s ON c.course_id = s.course_id WHERE s.crn = $1',
+            [crn]
+        )
+
+        const course = findCourse.rows[0];
+
+        // add this course to completed courses
+        const completedCourseRes = await pool.query(
+            'INSERT INTO completed_courses (course_subject, course_title, credits) VALUES ($1, $2, $3)',
+            [course.subject, course.title, course.credits]
+        )
+
+        res.status(201).json(completedCourseRes.rows[0]);
+
         res.status(201).json(result.rows[0]);
 
     } catch (error) {
@@ -274,6 +289,19 @@ app.delete('/api/schedule/:crn', async (req, res) => {
             return res.status(404).send("Course not found in schedule");
         }
 
+        // delete from completed courses
+        const findCourse = await pool.query(
+            'SELECT c.title, c.credits, c.subject FROM course c JOIN section s ON c.course_id = s.course_id WHERE s.crn = $1',
+            [crn]
+        )
+
+        const course = findCourse.rows[0];
+
+        const completedCourseRes = await pool.query(
+            'DELETE FROM completed_courses WHERE course_title = $1 AND course_subject = $2',
+            [course.title, course.subject]
+        )
+
         res.json({message: "Course removed successfully!"});
 
     } catch (e){
@@ -284,12 +312,14 @@ app.delete('/api/schedule/:crn', async (req, res) => {
 
 // PREREQS/DEGREE
 app.get('/api/degree', async (req, res) => {
+    // get all degree requirements
+
     try {
-        const {major} = req.query;
+        const {major, university} = req.query;
 
         const degree_reqs = await pool.query(
-            "SELECT d.course_subject, d.course_title, d.credits FROM degree d WHERE d.major = $1 && d.major = $2",
-            [major, "ALL"]
+            "SELECT d.course_subject, d.course_title, d.credits FROM degree d WHERE d.major = $1 AND d.major = $2 AND d.university_id = $3",
+            [major, "ALL", university]
         );
 
         if (degree_reqs.rows.length > 0){
@@ -302,6 +332,28 @@ app.get('/api/degree', async (req, res) => {
 
     } catch (e) {
         console.log("Error fetching degree requirements ", e.message);
+    }
+
+})
+app.get('/api/degree/:subject', async (req, res) => {
+    // finds the prereqs for this sepcific course
+    try {
+        const {subject} = req.params;
+        const subjectReqs = await pool.query(
+            'SELECT prereq_subject FROM prerequisite WHERE course_subject = $1',
+            [subject]
+        )
+
+        if (subjectReqs.rows.length > 0){
+            console.log("Found a prerequisite for this course");
+            return res.json(subjectReqs.rows);
+        }
+
+        console.log("No prerequisite for this course");
+        return res.json([]);
+
+    } catch (e) {
+        console.error("Error fetching specific course subject in prerequisites", e);
     }
 
 })
