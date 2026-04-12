@@ -15,20 +15,17 @@ export default function Prereqs() {
 
     useEffect(() => {
         const fetchReqs = async () => {
+            setLoading(true);
             try {
                 // get requirements for the major
                 const query = new URLSearchParams({ major: degree, university: universityName });
-                const res = await fetch("http://localhost:3001/api/degree?${query}");
-                let data = await res.json();
-
-                if (data.length === 0) {
-                    // if no data, call post query to scrape information
-                    await fetch("http://localhost:3001/api/degree?${query}", {method: "POST"} );
-                    const retry = await fetch ("http://localhost:3001/api/degree?${query}");
-                    data = await retry.json();
+                const res = await fetch(`http://localhost:3001/api/degree?${query}`);
+                if (res.ok){
+                    let data = await res.json();
+                    setRequirements(data);
+                } else {
+                    setRequirements([]);
                 }
-
-                setRequirements(data);
 
                 // fetch already completed courses to check boxes
                 const completedRes = await fetch('http://localhost:3001/api/completed_courses');
@@ -37,6 +34,8 @@ export default function Prereqs() {
 
             } catch (e) {
                 console.error(e);
+            } finally {
+                setLoading(false);
             }
         };
 
@@ -50,13 +49,13 @@ export default function Prereqs() {
         try {
             if (isCompleted) {
                 // if true (and user presses it), remove from db
-                await fetch('http://localhost:3001/api/completed_courses?subject=${course.course_subject}&title=${course.course_title}', {method: "DELETE"});
+                await fetch(`http://localhost:3001/api/completed_courses?subject=${course.course_subject}&title=${course.course_title}`, {method: "DELETE"});
                 completed.delete(courseKey);
             }
 
             else {
                 // add to db
-                await fetch('http://localhost:3001/api/completed_courses', {
+                await fetch(`http://localhost:3001/api/completed_courses`, {
                     method: "POST",
                     headers: {"Content-Type": "application/json"},
                     body: JSON.stringify({

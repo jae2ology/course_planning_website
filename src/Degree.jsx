@@ -1,18 +1,16 @@
 import {React, useState} from 'react';
-import {useNavigate} from "react-router-dom";
+import {useLocation, useNavigate} from "react-router-dom";
 
 export default function Degree() {
     const [degree, setDegree] = useState("");
     const navigate = useNavigate();
-
-    const universityName = location.state?.universityName;
-    const semesterName = location.state?.semesterName;
+    const location = useLocation();
 
 
     const goToPrerequisites = () => {
         navigate("/courses", {state: {
-                universityName: universityName,
-                semesterName: semesterName,
+                universityName: location.state?.universityName,
+                semesterName: location.state?.semesterName,
                 degree: degree
             }});
     }

@@ -103,7 +103,7 @@ export default function MainPage(){
     }, [debounced, semester, university]); // rerun when subject changes
 
     const fetchProgress = async () => {
-        const res = await fetch(`http://localhost:3001/api/progress/${degree}`);
+        const res = await fetch(`http://localhost:3001/api/progress/${degree}?scheduleId=${semester}`);
         const data = await res.json();
         // avoid division by 0
         setProgress({
@@ -114,28 +114,25 @@ export default function MainPage(){
 
     const handleAddCourse = async (course) => {
         try {
+
+            // fetch prereqs
+            const query = new URLSearchParams({
+                subject: subject,
+                scheduleId: semester,
+            })
+
+            const prereqRes = await fetch(`http://localhost:3001/api/degree/check-prereq/${query}`);
+            const { prereqs } = await prereqRes.json();
+
+            if (prereqs.required !== "None" && !prereqs.satisfied) {
+                alert(`Prerequisite Warning: This course requires ${prereqs.required}.`);
+                return;
+            }
+
             const queryParams = new URLSearchParams({
                 crn: course.crn,
                 semesterName: semester,
             }).toString();
-
-            // fetch prereqs
-            const query = new URLSearchParams({
-                major: degree
-            })
-
-            const prereqRes = await fetch(`http://localhost:3001/api/degree?${query}`);
-            const { prereqs } = await prereqRes.json();
-
-            if (prereqs !== "None") {
-                // check if the prereqs have been completed (if they are included in the completed list from the previous page)
-                const hasFinished = completed.some(c => prereqs.includes(c.course_subject));
-
-                if (!hasFinished) {
-                    alert(`Prerequisite Warning: This course requires ${prereqs}.`);
-                    return; // block adding course
-                }
-            }
 
             const response = await fetch(`http://localhost:3001/api/schedule?${queryParams}`, {
                 method: 'POST',
@@ -438,7 +435,7 @@ export default function MainPage(){
                 </div>
             </main>
 
-            <div className="p-4 bg-slate-100 rounded-xl mb-4 border-l-4 border-primary">
+            <div className="fixed bottom-0 left-0 w-full p-4 bg-slate-100 rounded-xl mb-4 border-l-4 border-primary">
                     <h3 className="text-sm font-black uppercase tracking-tighter">Plan for {degree}</h3>
 
                     <div className="flex items-center justify-between mt-2">
