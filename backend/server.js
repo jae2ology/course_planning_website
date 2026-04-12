@@ -5,6 +5,7 @@ import {pool} from "./db.js";
 const app = express();
 
 app.use(cors());
+app.use(express.json());
 
 // COURSES/SECTIONS
 app.get('/api/courses', async (req, res) => {
@@ -290,7 +291,7 @@ app.get('/api/degree', async (req, res) => {
             "SELECT d.course_subject, d.course_title, d.credits FROM degree d WHERE d.major = $1", [major]
         );
 
-        if (degree_reqs.length > 0){
+        if (degree_reqs.rows.length > 0){
             console.log("Fetching from Database");
             return res.json(degree_reqs.rows);
         }
@@ -426,13 +427,13 @@ app.get('/api/completed_courses', async (req, res) => {
         console.error("Error fetching completed courses ", e.message);
     }
 })
-app.post('/api/completed_courses/:course', async (req, res) => {
+app.post('/api/completed_courses', async (req, res) => {
     try {
-        const {course} = req.params;
+        const course = req.body;
 
         pool.query(
-            "INSERT INTO completed_courses (course_subject, course_title) VALUES ($1, $2)",
-            [course.subject, course.title]
+            "INSERT INTO completed_courses (course_subject, course_title, credits) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+            [course.subject, course.title, course.credits]
         )
 
         console.log(`Inserted ${course.title} into completed courses`);
@@ -443,9 +444,10 @@ app.post('/api/completed_courses/:course', async (req, res) => {
     }
 
 })
-app.delete('/api/completed_courses/:course', async (req, res) => {
+app.delete('/api/completed_courses', async (req, res) => {
     try {
-        const {course} = req.params;
+        const course = req.query;
+
         pool.query(
             "DELETE FROM completed_courses WHERE course_subject = $1 AND course_title = $2",
             [course.subject, course.title]
@@ -456,6 +458,17 @@ app.delete('/api/completed_courses/:course', async (req, res) => {
     } catch (e) {
         console.error("Error deleting course", e);
     }
+})
+
+// PROGRESS
+app.get('/api/progress/:major', async (req, res) => {
+    const {major} = req.params;
+    const query = await pool.query(
+        'SELECT (SELECT SUM(credits) FROM completed_courses) as completed, (SELECT SUM(credits) FROM degree WHERE major = $1) as total',
+        [major]
+    )
+
+    return res.json(query.rows[0]);
 })
 
 app.listen(3001, () => console.log('Backend running on port 3001'));
