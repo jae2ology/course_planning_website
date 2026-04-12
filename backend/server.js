@@ -288,7 +288,8 @@ app.get('/api/degree', async (req, res) => {
         const {major} = req.query;
 
         const degree_reqs = await pool.query(
-            "SELECT d.course_subject, d.course_title, d.credits FROM degree d WHERE d.major = $1", [major]
+            "SELECT d.course_subject, d.course_title, d.credits FROM degree d WHERE d.major = $1 && d.major = $2",
+            [major, "ALL"]
         );
 
         if (degree_reqs.rows.length > 0){
@@ -397,8 +398,8 @@ app.post('/api/degree', async (req, res) => {
             console.log(`Inserting prerequisite ${course.prereqs} of course ${course.title} into prerequisites`);
             // prerequisite of courses
             await pool.query(
-                'INSERT INTO prerequisite (course_subject, prereq_subject, univ_id, major) VALUES ($1, $2, $3, $4)',
-                [course.subject, course.prereqs, univ_id, major]
+                'INSERT INTO prerequisite (course_subject, prereq_subject, univ_id) VALUES ($1, $2, $3)',
+                [course.subject, course.prereqs, univ_id]
             )
         }
 
