@@ -25,7 +25,7 @@ app.get('/api/courses', async (req, res) => {
             FROM section sec 
             JOIN course c ON sec.course_id = c.course_id 
             JOIN semester sem ON c.sem_id = sem.sem_id 
-    
+            -- first 9 without the section number in scraped courses
             LEFT JOIN prerequisite p ON p.course_subject = LEFT(c.subject, 9) 
             WHERE c.subject ILIKE $1 AND sem.sem_id = $2
             GROUP BY 
@@ -334,6 +334,63 @@ app.get('/api/degree', async (req, res) => {
     }
 
 })
+app.get('/api/degree/check-prereq', async (req, res) => {
+    const {subject, scheduleId} = req.query;
+    // Normalize input
+    const baseSubject = subject.substring(0, 9).trim();
+
+    let currentId = 0;
+    if (scheduleId === "202601") currentId = 1;
+    if (scheduleId === "202605") currentId = 2;
+    if (scheduleId === "202608") currentId = 3;
+
+    try {
+        // get prereq
+        const prereqRes = await pool.query(
+            "SELECT prereq_subject FROM prerequisite WHERE course_subject = $1",
+            [baseSubject]
+        );
+
+        if (prereqRes.rows.length === 0 || prereqRes.rows[0].prereq_subject === "None") {
+            return res.json({ satisfied: true, required: "None" });
+        }
+
+
+        const prereqSubject = prereqRes.rows[0].prereq_subject;
+        // check if subject exists in history or previous schedule
+
+        const requiredSubjects = prereqRes.rows.map(r => r.prereq_subject);
+
+        const satisfiedQuery = await pool.query(
+            `SELECT course_subject as matched
+             FROM completed_courses
+             WHERE course_subject = ANY($1)
+             
+             UNION
+             
+             SELECT c.subject as matched
+             FROM schedule s
+             JOIN section sec ON s.crn = sec.crn
+             JOIN course c ON c.course_id = sec.course_id
+             WHERE LEFT(c.subject, 9) = ANY($1) AND s.schedule_id < $2`,
+            [requiredSubjects, currentId]
+        );
+
+        // check if the subjects that have been completed are in the requirements, and vice versa
+        const satisfiedSubjects = satisfiedQuery.rows.map(r => r.matched);
+        const missing = requiredSubjects.filter(s => !satisfiedSubjects.includes(s));
+
+        res.json({
+            satisfied: missing.length === 0,
+            required: requiredSubjects.join(' & '),
+            missing: missing
+        });
+
+    } catch (e) {
+        console.error("Prereq Error:", e.message);
+        res.status(500).send(e.message);
+    }
+});
 app.get('/api/degree/:subject', async (req, res) => {
     // finds the prereqs for this sepcific course
     try {
@@ -341,10 +398,12 @@ app.get('/api/degree/:subject', async (req, res) => {
 
         const decodedSubject = decodeURIComponent(subject);
         // We take the first 9 characters and normalize them
-        const baseSubject = decodedSubject.substring(0, 9).replace(/\s+/g, '');
+        const baseSubject = decodedSubject.substring(0, 9).trim();
+
+        console.log(baseSubject);
 
         const subjectReqs = await pool.query(
-            "SELECT prereq_subject FROM prerequisite WHERE REPLACE(course_subject, ' ', '') = $1",
+            "SELECT prereq_subject FROM prerequisite WHERE TRIM(course_subject) ILIKE $1",
             [baseSubject]
         );
 
@@ -360,181 +419,6 @@ app.get('/api/degree/:subject', async (req, res) => {
         console.error("Error fetching specific course subject in prerequisites", e);
     }
 
-})
-app.get('/api/degree/check-prereq', async (req, res) => {
-    const {subject, scheduleId} = req.query;
-    // Normalize input
-    const normalizedSearch = subject.replace(/\s+/g, '');
-
-    try {
-        // get prereq
-        const prereqRes = await pool.query(
-            "SELECT prereq_subject FROM prerequisite WHERE REPLACE(course_subject, ' ', '') = $1",
-            [normalizedSearch]
-        );
-
-        if (prereqRes.rows.length === 0 || prereqRes.rows[0].prereq_subject === "None") {
-            return res.json({ satisfied: true, required: "None" });
-        }
-
-        const prereqSubject = prereqRes.rows[0].prereq_subject;
-        // check if subject exists in history or previous schedule
-
-        const requiredSubjects = prereqRes.rows.map(r => r.prereq_subject);
-        const normalizedRequirements = requiredSubjects.map(s => s.replace(/\s+/g, ''));
-
-        // 2. Check which of these are satisfied
-        // We use ANY($1) to check the whole list at once
-        // We use LEFT(c.subject, 9) to ignore the section code "01E"
-        const satisfiedQuery = await pool.query(
-            `SELECT REPLACE(course_subject, ' ', '') as matched
-             FROM completed_courses
-             WHERE REPLACE(course_subject, ' ', '') = ANY($1)
-             UNION
-             SELECT REPLACE(LEFT(c.subject, 9), ' ', '') as matched
-             FROM schedule s
-                      JOIN section sec ON s.crn = sec.crn
-                      JOIN course c ON c.course_id = sec.course_id
-             WHERE REPLACE(LEFT(c.subject, 9), ' ', '') = ANY($1) AND s.schedule_id < $2`,
-            [normalizedRequirements, scheduleId]
-        );
-
-        const satisfiedSubjects = satisfiedQuery.rows.map(r => r.matched);
-
-        // check if the subjects that have been completed are in the requirements, and vice versa
-        const missing = normalizedRequirements.filter(s => !satisfiedSubjects.includes(s));
-
-        res.json({
-            satisfied: missing.length === 0,
-            required: requiredSubjects.join(' & '),
-            missing: missing
-        });
-
-    } catch (e) {
-        console.error("Prereq Error:", e.message);
-        res.status(500).send(e.message);
-    }
-});
-
-app.post('/api/degree', async (req, res) => {
-    try {
-        const {major, university} = req.query;
-
-        const univRes = await pool.query(
-            "SELECT u.univ_id FROM university u WHERE u.name = $1", [university]
-        );
-
-        const univ_id = univRes.rows[0];
-
-        const browser = await puppeteer.launch({ headless: false });
-        const page = await browser.newPage();
-        
-        await page.goto('https://catalog.georgiasouthern.edu/content.php?catoid=16&navoid=1852'); // go to academic catalog
-
-        const majorLink = await page.evaluate((target) => {
-            const anchors = Array.from(document.querySelectorAll('.program-list li a'));
-            const match = anchors.find(a => a.innerText.includes(target));
-            return match ? match.href : null;
-        }, major);
-
-        if (!majorLink) {
-            console.error(`Major ${major} not found in university`);
-            return;
-        }
-
-        console.log(`Navigating to major page: ${majorLink}`);
-        await page.goto(majorLink);
-
-        // wait for requirements to load
-        await page.waitForSelector('li.acalog-course', {timeout: 5000});
-
-        const courseElements = await page.$$('li.acalog-course a');
-        const results = [];
-
-        console.log(`Found ${courseElements.length} courses`);
-
-        for (const element of courseElements) {
-            await element.click(); // click to open the prereq page
-
-            // wait for the box to be visible
-            await page.waitForSelector('.td_dark', {timeout: 2000}).catch(() => null);
-
-            const data = await page.evaluate((linkElement) => {
-                // find the parent 'li' to get the course text and info
-                const link = linkElement.closest('li');
-                const text = link.innerText.trim();
-
-                // find parent section container
-                const parentSection = link.closest('.acalog-core');
-                const headerText = parentSection?.querySelector('h3')?.innerText.toLowerCase() || "";
-
-                let type = "Major Requirements"; // default
-
-                if (headerText.includes("specific requirements")){
-                    type = "Foreign Language and Science Requirements";
-                }
-
-                if (headerText.includes("field of study")){
-                    type = "Field of Study Requirements";
-                }
-
-                if (headerText.includes("electives")) {
-                    type = "Elective Requirements";
-                }
-
-                // create regex bc all information is in the same header
-                const regex = /([A-Z]{4})\s?(\d{4})[:\-\s]+(.*?)\s\((\d+)\sCredit/;
-                const match = text.match(regex);
-
-                if (!match) return null;
-
-                // look for prereqs in the expanded area
-                const expanded = link.querySelector('.td_dark');
-                let prereqText = "";
-
-                if (expanded){
-                    const allText = expanded.innerText;
-                    const prereqMatch = allText.match(/Prerequisite\(s\): (.*)/);
-                    prereqText = prereqMatch ? prereqMatch[1] : "None";
-                }
-
-                return {
-                    subject: match[1] + " " + match[2],
-                    title: match[3],
-                    credits: parseInt(match[4]),
-                    type: type,
-                    prereqs: prereqText
-                };
-            }, element);
-
-            if (data) results.push(data);
-
-            // click again to close it
-            await element.click();
-        }
-
-        for (const course of results){
-
-            console.log(`Inserting course ${course.title} into degree requirements`);
-
-            // insert into degree requirements
-            await pool.query(
-                'INSERT INTO degree (major, course_subject, course_title, credits, university_id, type_of_req) VALUES ($1, $2, $3, $4, $5, $6)',
-                [major, course.subject, course.title, course.credits, univ_id, course.type]
-            );
-
-            console.log(`Inserting prerequisite ${course.prereqs} of course ${course.title} into prerequisites`);
-            // prerequisite of courses
-            await pool.query(
-                'INSERT INTO prerequisite (course_subject, prereq_subject, univ_id) VALUES ($1, $2, $3)',
-                [course.subject, course.prereqs, univ_id]
-            )
-        }
-
-
-    } catch (error){
-        console.log("Error posting degree requirements and prereqs", error.message);
-    }
 })
 
 // COMPLETED COURSES
@@ -604,7 +488,7 @@ app.get('/api/progress/:major', async (req, res) => {
 
     const query = await pool.query(
         `SELECT
-             (SELECT SUM(credits) FROM (
+             (SELECT COALESCE(SUM(credits)) FROM (
                                            -- Ensure column names match across the UNION
                                            SELECT course_subject AS subject, credits FROM completed_courses
                                            UNION

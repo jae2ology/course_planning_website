@@ -3,7 +3,7 @@ import {Calendar, momentLocalizer, Views} from "react-big-calendar";
 import moment from 'moment';
 import 'react-big-calendar/lib/css/react-big-calendar.css'
 import './App.css'
-import {Search, SlidersHorizontal, Clock, User, AlertTriangle} from 'lucide-react';
+import {Search, SlidersHorizontal, Clock, User, AlertTriangle, CircleDot} from 'lucide-react';
 import {useLocation} from "react-router-dom";
 
 // page for the calendar/schedule setup
@@ -34,10 +34,12 @@ export default function MainPage(){
     }
 
     useEffect(() => {
-        fetchSchedule();
-        fetchCreditTotal();
-        fetchProgress();
-    }, [savedSchedule]);
+        if (semester) {
+            fetchSchedule();
+            fetchCreditTotal();
+            fetchProgress();
+        }
+    }, [semester, degree]);
 
     useEffect(() => {
         const handler = setTimeout(() => {
@@ -110,8 +112,27 @@ export default function MainPage(){
     }
 
     const handleAddCourse = async (course) => {
+        // check for prerequisites before adding course
         try {
+            const baseSubject = course.subject.substring(0, 9).trim();
 
+            const checkParams = new URLSearchParams({
+                subject: baseSubject,
+                scheduleId: semester
+            }).toString();
+
+            const checkRes = await fetch(`http://localhost:3001/api/degree/check-prereq?${checkParams}`);
+            const checkData = await checkRes.json();
+
+            if (!checkData.satisfied){
+                alert(`Prerequisite Error: You must complete ${course.prereqs} before taking ${course.subject} - ${course.title}`);
+                return;
+            }
+        } catch (e) {
+            console.error('Prereq Check Error', e.message);
+        }
+
+        try {
             const queryParams = new URLSearchParams({
                 crn: course.crn,
                 semesterName: semester,
@@ -131,6 +152,7 @@ export default function MainPage(){
             alert(`Successfully added ${course.subject} to your schedule`);
             fetchSchedule();
             fetchCreditTotal();
+            fetchProgress();
 
         } catch (error){
             console.log("Error adding course:", error);
@@ -151,6 +173,7 @@ export default function MainPage(){
                 console.log(`${event.title} removed successfully.`);
                 fetchSchedule();
                 fetchCreditTotal();
+                fetchProgress();
             }
 
         } catch (e) {
@@ -275,6 +298,10 @@ export default function MainPage(){
                         <User size={14} className="text-primary shrink-0" />
                         <span className="truncate">{course.instructor}</span>
                     </div>
+                    <div className="flex items-center gap-2">
+                        <CircleDot size={14} className="text-primary shrink-0" />
+                        <span className="truncate">{course.campus}</span>
+                    </div>
                 </div>
 
                 {/* Prereq Alert - Fixed height to prevent layout shifts */}
@@ -368,7 +395,7 @@ export default function MainPage(){
                 {/* show total credits! */}
                 <div className="p-4 border-t bg-slate-50">
                     <h3 className="text-sm font-bold mb-2 flex items-center gap-2">
-                        Total Credits
+                        Total Credits:
                     </h3>
                     {savedSchedule.length === 0 ? (
                         <p className="text-xs text-slate-500">No courses added.</p>
