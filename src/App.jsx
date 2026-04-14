@@ -9,6 +9,14 @@ import Degree from "./Degree.jsx";
 import Prereqs from "./Prereqs.jsx";
 
 export default function App() {
+    // route:
+    // 1: home
+    // 2: choose university (form)
+    // 3: choose major (degree)
+    // 4: choose courses taken (prereqs)
+    // 5: choose semester (semester)
+    // 6: main page (mainpage)
+
     return (
         <BrowserRouter>
 
