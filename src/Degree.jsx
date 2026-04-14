@@ -10,7 +10,6 @@ export default function Degree() {
     const goToPrerequisites = () => {
         navigate("/courses", {state: {
                 universityName: location.state?.universityName,
-                semesterName: location.state?.semesterName,
                 degree: degree
             }});
     }

@@ -15,7 +15,23 @@ app.get('/api/courses', async (req, res) => {
 
         // search from database
         const existingCourses = await pool.query(
-            'SELECT sec.*, c.title, c.credits, c.subject FROM section sec JOIN course c ON sec.course_id = c.course_id JOIN semester sem ON c.sem_id = sem.sem_id WHERE c.subject ILIKE $1 AND sem.sem_id = $2',
+            `SELECT 
+                sec.*, 
+                c.title, 
+                c.credits, 
+                c.subject, 
+                COALESCE(STRING_AGG(p.prereq_subject, ' & '), 'None') as prereqs 
+
+            FROM section sec 
+            JOIN course c ON sec.course_id = c.course_id 
+            JOIN semester sem ON c.sem_id = sem.sem_id 
+    
+            LEFT JOIN prerequisite p ON p.course_subject = LEFT(c.subject, 9) 
+            WHERE c.subject ILIKE $1 AND sem.sem_id = $2
+            GROUP BY 
+                sec.crn, sec.instructor, sec.time, sec.day, sec.campus, 
+                sec.course_id, c.title, c.credits, c.subject
+            ORDER BY c.subject ASC, sec.crn ASC`,
             [`${subjectName}%`, semesterName] // ANYTHING starting with the subject
         );
 
@@ -62,7 +78,11 @@ app.post('/api/courses', async (req, res) => {
         console.log(`Proceeding with University: ${universityId}, Semester: ${semesterId}`);
 
         // call puppeteer
-        const browser = await puppeteer.launch({ headless: false });
+        const browser = await puppeteer.launch({
+            headless: "new",
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
+        });
+
         const page = await browser.newPage();
         await page.goto('https://coursesearch.georgiasouthern.edu/');
 
@@ -317,11 +337,16 @@ app.get('/api/degree', async (req, res) => {
 app.get('/api/degree/:subject', async (req, res) => {
     // finds the prereqs for this sepcific course
     try {
-        const {subject} = req.params;
+        const { subject } = req.params;
+
+        const decodedSubject = decodeURIComponent(subject);
+        // We take the first 9 characters and normalize them
+        const baseSubject = decodedSubject.substring(0, 9).replace(/\s+/g, '');
+
         const subjectReqs = await pool.query(
-            'SELECT prereq_subject FROM prerequisite WHERE course_subject = $1',
-            [subject]
-        )
+            "SELECT prereq_subject FROM prerequisite WHERE REPLACE(course_subject, ' ', '') = $1",
+            [baseSubject]
+        );
 
         if (subjectReqs.rows.length > 0){
             console.log("Found a prerequisite for this course");
@@ -338,32 +363,55 @@ app.get('/api/degree/:subject', async (req, res) => {
 })
 app.get('/api/degree/check-prereq', async (req, res) => {
     const {subject, scheduleId} = req.query;
+    // Normalize input
+    const normalizedSearch = subject.replace(/\s+/g, '');
 
     try {
         // get prereq
         const prereqRes = await pool.query(
-            'SELECT prereq_subject FROM prerequisite WHERE course_subject = $1',
-            [subject]
+            "SELECT prereq_subject FROM prerequisite WHERE REPLACE(course_subject, ' ', '') = $1",
+            [normalizedSearch]
         );
 
-        if (prereqRes.rows.length === 0 || prereqRes.rows[0].prereq_subject === "None"){
-            return res.json({ satisfied: true}); // no prereqs, student can take course
+        if (prereqRes.rows.length === 0 || prereqRes.rows[0].prereq_subject === "None") {
+            return res.json({ satisfied: true, required: "None" });
         }
 
         const prereqSubject = prereqRes.rows[0].prereq_subject;
         // check if subject exists in history or previous schedule
 
-        const checkQuery = await pool.query(
-            'SELECT * FROM completed_courses WHERE course_subject = $1 UNION SELECT c.title, c.subject, c.credits FROM schedule s JOIN section sec ON s.crn = sec.crn JOIN course c ON c.course_id = sec.course_id WHERE c.subject = $1 AND s.schedule_id < $2',
-            [prereqSubject, scheduleId]
-        )
+        const requiredSubjects = prereqRes.rows.map(r => r.prereq_subject);
+        const normalizedRequirements = requiredSubjects.map(s => s.replace(/\s+/g, ''));
+
+        // 2. Check which of these are satisfied
+        // We use ANY($1) to check the whole list at once
+        // We use LEFT(c.subject, 9) to ignore the section code "01E"
+        const satisfiedQuery = await pool.query(
+            `SELECT REPLACE(course_subject, ' ', '') as matched
+             FROM completed_courses
+             WHERE REPLACE(course_subject, ' ', '') = ANY($1)
+             UNION
+             SELECT REPLACE(LEFT(c.subject, 9), ' ', '') as matched
+             FROM schedule s
+                      JOIN section sec ON s.crn = sec.crn
+                      JOIN course c ON c.course_id = sec.course_id
+             WHERE REPLACE(LEFT(c.subject, 9), ' ', '') = ANY($1) AND s.schedule_id < $2`,
+            [normalizedRequirements, scheduleId]
+        );
+
+        const satisfiedSubjects = satisfiedQuery.rows.map(r => r.matched);
+
+        // check if the subjects that have been completed are in the requirements, and vice versa
+        const missing = normalizedRequirements.filter(s => !satisfiedSubjects.includes(s));
 
         res.json({
-            satisfied: checkQuery.rows.length > 0,
-            required: prereqSubject,
+            satisfied: missing.length === 0,
+            required: requiredSubjects.join(' & '),
+            missing: missing
         });
 
     } catch (e) {
+        console.error("Prereq Error:", e.message);
         res.status(500).send(e.message);
     }
 });
@@ -496,7 +544,7 @@ app.get('/api/completed_courses', async (req, res) => {
             'SELECT * FROM completed_courses'
         )
 
-        if (completedResults.length > 0){
+        if (completedResults.rows.length > 0){
             console.log('Fetched all completed courses');
             return res.json(completedResults.rows);
         }
@@ -510,18 +558,19 @@ app.get('/api/completed_courses', async (req, res) => {
 })
 app.post('/api/completed_courses', async (req, res) => {
     try {
-        const course = req.body;
+        const {subject, title, credits} = req.body;
 
-        pool.query(
-            "INSERT INTO completed_courses (course_subject, course_title, credits) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-            [course.subject, course.title, course.credits]
-        )
+        await pool.query(
+            "INSERT INTO completed_courses (course_subject, course_title, credits) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+            [subject, title, credits]
+        );
 
-        console.log(`Inserted ${course.title} into completed courses`);
-
+        console.log(`Inserted ${title} into completed courses`);
+        res.status(200).json({message: "Added"});
 
     } catch (e){
         console.log("Error posting course", e);
+        res.status(500).send(e.message);
     }
 
 })
@@ -529,15 +578,17 @@ app.delete('/api/completed_courses', async (req, res) => {
     try {
         const course = req.query;
 
-        pool.query(
+       await pool.query(
             "DELETE FROM completed_courses WHERE course_subject = $1 AND course_title = $2",
             [course.subject, course.title]
         )
 
         console.log(`Deleted ${course.title} from completed courses`);
+       res.status(200).json({message: "Deleted"});
 
     } catch (e) {
         console.error("Error deleting course", e);
+        res.status(500).send(e.message);
     }
 })
 
@@ -552,15 +603,19 @@ app.get('/api/progress/:major', async (req, res) => {
     if (scheduleId === "202608") scheduleNumber = 3;
 
     const query = await pool.query(
-        `SELECT 
-                (SELECT COALESCE(SUM(credits), 0) FROM completed_courses) + 
-                (SELECT COALESCE(SUM(c.credits), 0) 
-                 FROM schedule s 
-                 JOIN section sec ON s.crn = sec.crn 
-                 JOIN course c ON sec.course_id = c.course_id 
-                 WHERE s.schedule_id < $1) as completed,
-                (SELECT COALESCE(SUM(credits), 0) FROM degree WHERE major IN ($2, 'ALL')) as total`,
-        [scheduleNumber, major]
+        `SELECT
+             (SELECT SUM(credits) FROM (
+                                           -- Ensure column names match across the UNION
+                                           SELECT course_subject AS subject, credits FROM completed_courses
+                                           UNION
+                                           SELECT c.subject AS subject, c.credits -- Match your 'degree' table naming
+                                           FROM schedule s
+                                                    JOIN section sec ON s.crn = sec.crn
+                                                    JOIN course c ON sec.course_id = c.course_id
+                                           WHERE s.schedule_id < $1
+                                       ) as unique_student_courses) as completed,
+             124 as total`,
+        [scheduleNumber] // Removed 'major' since it isn't used in this specific query
     );
 
     return res.json(query.rows[0]);

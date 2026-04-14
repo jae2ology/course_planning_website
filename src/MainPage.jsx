@@ -26,6 +26,7 @@ export default function MainPage(){
     const completed = location.state.completed;
     const requirements = location.state.requirements;
 
+
     const [progress, setProgress] = useState({completed: completed.length, total: 124});
 
     const changeSubject = (event) => {
@@ -36,20 +37,19 @@ export default function MainPage(){
         fetchSchedule();
         fetchCreditTotal();
         fetchProgress();
-        
-        const handler = setTimeout(() => {
-            setDebounced(subject);
-        }, 500); // wait 500s after the last letter
-
-        return () => {
-            clearTimeout(handler); // cancel timer if user types again
-        };
-        
-    }, [subject, savedSchedule]);
+    }, [savedSchedule]);
 
     useEffect(() => {
-        // only fetch if subject is returned
-        if (!debounced || debounced.length < 4) {
+        const handler = setTimeout(() => {
+            setDebounced(subject);
+        }, 500);
+
+        return () => clearTimeout(handler);
+    }, [subject]);
+
+    useEffect(() => {
+        const searchTerm = debounced.trim();
+        if (!searchTerm || searchTerm.length < 3) {
             setCourses([]);
             return;
         }
@@ -59,7 +59,7 @@ export default function MainPage(){
             try {
                 // get params
                 const queryParams = new URLSearchParams({
-                    subjectName: debounced,
+                    subjectName: searchTerm,
                     semesterName: semester,
                     universityName: university,
                 }).toString();
@@ -80,12 +80,9 @@ export default function MainPage(){
 
                     if (postResponse.ok){
                         // call get method again once courses have been inserted
-                        const totalCourses = await fetch(queryUrl);
-                        data = await totalCourses.json();
+                        data = await postResponse.json();
                     }
                 }
-
-
 
                 // set courses on the frontend to the data
                 setCourses(data);
@@ -100,7 +97,7 @@ export default function MainPage(){
 
         fetchCourses();
 
-    }, [debounced, semester, university]); // rerun when subject changes
+    }, [debounced]); // rerun when subject changes
 
     const fetchProgress = async () => {
         const res = await fetch(`http://localhost:3001/api/progress/${degree}?scheduleId=${semester}`);
@@ -114,20 +111,6 @@ export default function MainPage(){
 
     const handleAddCourse = async (course) => {
         try {
-
-            // fetch prereqs
-            const query = new URLSearchParams({
-                subject: subject,
-                scheduleId: semester,
-            })
-
-            const prereqRes = await fetch(`http://localhost:3001/api/degree/check-prereq/${query}`);
-            const { prereqs } = await prereqRes.json();
-
-            if (prereqs.required !== "None" && !prereqs.satisfied) {
-                alert(`Prerequisite Warning: This course requires ${prereqs.required}.`);
-                return;
-            }
 
             const queryParams = new URLSearchParams({
                 crn: course.crn,
@@ -260,78 +243,60 @@ export default function MainPage(){
     }
 
     const CourseCard = ({ course }) => {
-        const isCompleted = completed.some(course => course.course_subject === course.subject);
-        const isRequirement = requirements.some(r => r.course_subject === course.subject);
+        const normalize = (str) => str?.replace(/\s+/g, '').toLowerCase();
+        const isCompleted = completed.some(c => normalize(c.course_subject) === normalize(course.subject));
 
         return (
-            <div className={"p-5 rounded-2xl bg-slate-900 border border-white hover:border-primary/50 hover:bg-slate-800 transition-all shadow-xl"}>
+            <div className="flex flex-col p-5 rounded-2xl bg-slate-900 border border-white/10 hover:border-primary/50 transition-shadow shadow-xl h-full relative">
 
-                <div className="absolute top-4 right-4 flex items-center gap-1">
-                    {isCompleted ? (
-                        <span className="flex items-center text-[10px] text-success font-bold uppercase">
-                        <div className="w-2 h-2 rounded-full bg-success mr-1 animate-pulse" /> Completed
-                    </span>
-                    ) : isRequirement ? (
-                        <span className="flex items-center text-[10px] text-primary font-bold uppercase">
-                        <div className="w-2 h-2 rounded-full bg-primary mr-1" /> Needed
-                    </span>
-                    ) : (
-                        <span className="flex items-center text-[10px] text-slate-500 font-bold uppercase">
-                        <div className="w-2 h-2 rounded-full bg-slate-500 mr-1" /> Elective
-                    </span>
-                    )}
+                {/* Top Row: Meta Info */}
+                <div className="flex justify-between items-start mb-2">
+                <span className="text-[10px] text-primary font-black tracking-widest uppercase">
+                    CRN {course.crn}
+                </span>
+                    <span className="badge badge-outline badge-primary badge-sm">
+                    {course.credits} Credits
+                </span>
                 </div>
 
-                <div className={"flex flex-wrap justify-between items-center gap-2 mb-2"}>
-                    <div className={"flex items-center gap-2"}>
-                    <span className="text-xs text-primary uppercase tracking-widest">
-                        CRN {course.crn}
-                    </span>
-                        <span className="text-primary  badge badge-outline badge-sm opacity-100">{course.credits} Credits </span>
+                {/* Course Identity */}
+                <div className="mb-4">
+                    <h2 className="text-lg font-bold text-white leading-tight">{course.subject}</h2>
+                    <p className="text-sm text-slate-400 font-medium line-clamp-1">{course.title}</p>
+                </div>
+
+                {/* Details Section */}
+                <div className="space-y-2 mb-4 text-xs text-slate-300 border-t border-white/5 pt-3">
+                    <div className="flex items-center gap-2">
+                        <Clock size={14} className="text-primary shrink-0" />
+                        <span>{course.day || 'TBA'} | {course.time || 'TBA'}</span>
                     </div>
-
-                    <h2 className="text-lg font-bold text-white leading-tight mb-1">
-                        {course.subject}
-                    </h2>
-                    <p className="text-sm text-slate-400 font-medium mb-4 line-clamp-1">
-                        {course.title}
-                    </p>
-
-                    <div className="space-y-3 text-xs text-slate-300 mb-5">
-                        <div className="flex items-start gap-3">
-                            <Clock className="w-4 h-4 text-primary shrink-0" />
-                            <div className="flex flex-col">
-                                <span className="font-bold text-slate-100">{course.day}</span>
-                                <span className="opacity-70">{course.time}</span>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                            <User className="w-4 h-4 text-primary shrink-0" />
-                            <span>{course.instructor}</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                            <div className="w-4 h-4 flex items-center justify-center">
-                                <div className="w-1.5 h-1.5 rounded-full bg-success"></div>
-                            </div>
-                            <span className="italic opacity-80">{course.campus}</span>
-                        </div>
+                    <div className="flex items-center gap-2">
+                        <User size={14} className="text-primary shrink-0" />
+                        <span className="truncate">{course.instructor}</span>
                     </div>
+                </div>
 
-                    {/* Prereq warning */}
-                    {course.prereqs !== "None" && !isCompleted && (
-                        <div className="mt-2 text-[10px] text-error flex items-center gap-1">
+                {/* Prereq Alert - Fixed height to prevent layout shifts */}
+                <div className="min-h-[32px] mb-2">
+                    {course.prereqs && course.prereqs !== "None" && !isCompleted && (
+                        <div className="text-[10px] text-error flex items-center gap-1 font-bold bg-error/10 p-1.5 rounded">
                             <AlertTriangle size={12} /> Requires: {course.prereqs}
                         </div>
                     )}
-
                 </div>
 
-                <button onClick={() => handleAddCourse(course)} className="btn btn-sm btn-primary btn-block shadow-lg rounded-full">
-                    Add
+                {/* THE BUTTON: Added z-index and explicit cursor pointer */}
+                <button
+                    onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleAddCourse(course);
+                    }}
+                    className="btn btn-sm btn-primary w-full mt-auto relative z-30 cursor-pointer shadow-lg active:scale-95 transition-transform"
+                >
+                    Add Course
                 </button>
-
-                {/* TODO: add hover:courses on calendar */}
-
             </div>
         )
     }
@@ -354,6 +319,7 @@ export default function MainPage(){
                         <Search className={"absolute left-3 top-3 w-5 h-5 text-slate-950"} />
                         <SlidersHorizontal className={"absolute right-3 top-3 w-5 h-5 text-slate-950"} />
                     </div>
+
                 </div>
 
                 {/* courses */}
@@ -370,6 +336,8 @@ export default function MainPage(){
                             <CourseCard key={course.id} course={course} />
                         ))
                     )}
+
+
                 </div>
 
                 {/* show online courses */}
@@ -411,9 +379,23 @@ export default function MainPage(){
                     )}
                 </div>
 
+                <div className="p-4 border-t bg-slate-50">
+                    <h3 className="text-sm font-black uppercase ">{degree} degree completion</h3>
+
+                    <div className="flex items-center justify-between mt-2">
+                        <span className="text-xs font-bold">{percentage}% Done</span>
+                        <span className="text-[10px] opacity-60">{progress.completed} / {progress.total} Credits</span>
+                    </div>
+
+                    <div className="w-full bg-slate-300 h-1.5 rounded-full mt-1 overflow-hidden">
+                        <div className="bg-primary h-full transition-all" style={{ width: `${percentage}%` }} />
+                    </div>
+                </div>
+
             </aside>
 
             <main className={'flex-1 h-full p-4 overflow-y-auto'}>
+
                 <div className={'h-full bg-primary/30 rounded-2xl p-4 shadow-2xl border border-slate-950'}>
                     <Calendar
                         localizer={localizer}
@@ -434,19 +416,6 @@ export default function MainPage(){
                     />
                 </div>
             </main>
-
-            <div className="fixed bottom-0 left-0 w-full p-4 bg-slate-100 rounded-xl mb-4 border-l-4 border-primary">
-                    <h3 className="text-sm font-black uppercase tracking-tighter">Plan for {degree}</h3>
-
-                    <div className="flex items-center justify-between mt-2">
-                        <span className="text-xs font-bold">{percentage}% Done</span>
-                        <span className="text-[10px] opacity-60">{progress.completed} / {progress.total} Credits</span>
-                    </div>
-
-                    <div className="w-full bg-slate-300 h-1.5 rounded-full mt-1 overflow-hidden">
-                        <div className="bg-primary h-full transition-all" style={{ width: `${percentage}%` }} />
-                    </div>
-            </div>
         </div>
     )
 }

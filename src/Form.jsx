@@ -13,7 +13,7 @@ export default function Form() {
     const navigate = useNavigate();
 
     const goToSelect = (newUniversity) => {
-        navigate('/semester', { state: { universityName: newUniversity }});
+        navigate('/degree', { state: { universityName: newUniversity }});
     };
 
     return (
